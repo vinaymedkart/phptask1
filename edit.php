@@ -22,7 +22,7 @@ if ($id) {
     if (!empty($formData['group_type'])) {
         $formData['group_type'] = explode(', ', $formData['group_type']);
     }
-    var_dump($formData['group_type']);
+    // var_dump($formData['group_type']);
 }
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
