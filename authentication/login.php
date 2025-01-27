@@ -1,7 +1,7 @@
 <?php
 session_start();
-require_once 'config/database.php';
-require_once 'class/GroundBooking.php';
+require_once '../config/database.php';
+require_once '../class/GroundBooking.php';
 
 $errors = [];
 
@@ -19,7 +19,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // Successful login
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['email'] = $user['email'];
-        header("Location: dashboard.php");
+        header("Location: ../dashboard.php");
         exit();
     } else {
         $errors[] = "Invalid email or password";
@@ -48,7 +48,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         Password: <input type="password" name="password" required><br>
         
         <input type="submit" value="Login">
-        <p>Don't have an account? <a href="register.php">Register here</a></p>
+        <p>Don't have an account? <a href="../register.php">Register here</a></p>
     </form>
 </body>
 </html>

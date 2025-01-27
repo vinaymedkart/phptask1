@@ -1,32 +1,55 @@
 <?php
+session_start();
+
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    header("Location: authentication/login.php");
+    exit();
+}
+
 require_once 'config/database.php';
 require_once 'class/GroundBooking.php';
+require_once 'class/UserImage.php';
+require_once 'form.php';
 
 $database = new Database();
 $db = $database->conn;
 $booking = new GroundBooking($db);
+$userImage = new UserImage($db);
 
-$id = $_GET['id'] ?? null;
+$user_id = $_SESSION['user_id'];
 $errors = [];
 $formData = [];
 $isPasswordChanged = false;
 
-if ($id) {
-    $existingBooking = $booking->readOne($id);
-    if (!$existingBooking) {
-        die('Booking not found');
-    }
-    $formData = $existingBooking;
+// Fetch booking details
+$existingBooking = $booking->readOne($user_id);
+if (!$existingBooking) {
+    die('Booking not found');
+}
+$formData = $existingBooking;
 
-    // Convert group_type from string to an array
-    if (!empty($formData['group_type'])) {
-        $formData['group_type'] = explode(', ', $formData['group_type']);
-    }
-    // var_dump($formData['group_type']);
+// Fetch existing images
+$existingImages = $userImage->getUserImages($user_id);
+
+// Append "class/" to the image_path of each image
+foreach ($existingImages as &$image) {
+    $image['image_path'] = 'class/' . $image['image_path'];
+}
+
+// Update the form data with the modified images
+$formData['images'] = $existingImages;
+
+// Debug output to verify the changes
+// var_dump($existingImages);
+if (!empty($formData['group_type'])) {
+    $formData['group_type'] = explode(', ', $formData['group_type']);
 }
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // Capture and process form data
     $formData = [
+        'id' => $user_id,  // Add this to keep track of the user ID
         'username' => $_POST['username'] ?? '',
         'password' => $_POST['password'] ?? '',
         'current_password' => $_POST['current_password'] ?? '',
@@ -38,17 +61,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         'group_type' => $_POST['group_type'] ?? [],
         'gender' => $_POST['gender'] ?? '',
         'address' => $_POST['address'] ?? '',
-        'image' => $_FILES['image'] ?? null,
     ];
 
-    // Validate username
+    // Validation logic
     if (empty($formData['username']) || !$booking->validateUsername($formData['username'])) {
         $errors[] = "Username must be 3-20 characters long and contain only letters, numbers, and underscores.";
     }
 
     // Password change logic
     if (!empty($formData['password'])) {
-        // Verify current password before allowing change
         if (!password_verify($formData['current_password'], $existingBooking['password'])) {
             $errors[] = "Current password is incorrect.";
         } elseif (!$booking->validatePassword($formData['password'])) {
@@ -58,45 +79,47 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
-    // Validate email
+    // Other validations...
     if (empty($formData['email']) || !$booking->validateEmail($formData['email'])) {
         $errors[] = "Enter a valid email address.";
     }
 
-    // Validate phone
     if (empty($formData['phone']) || !$booking->validatePhone($formData['phone'])) {
         $errors[] = "Phone number must be 10 digits.";
     }
 
-    // Validate players count
     if (empty($formData['players_count']) || $formData['players_count'] < 1 || $formData['players_count'] > 22) {
         $errors[] = "Number of players must be between 1 and 22.";
     }
 
-    // Validate booking slot (cannot be in the past)
     if (empty($formData['booking_slot']) || strtotime($formData['booking_slot']) < time()) {
         $errors[] = "Booking slot must be a future date and time.";
     }
-    // In update scenario, handle keeping existing image if no new image uploaded
-    // In form validation
-if (!empty($_FILES['image']) && $_FILES['image']['error'] == 0) {
-    if (!$booking->validateImage($_FILES['image'])) {
-        $errors[] = "Invalid image file. Max size is 5MB, and only JPEG, PNG, and GIF are allowed.";
+
+    // Handle new image uploads
+    if (!empty($_FILES['images']['name'][0])) {
+        foreach ($_FILES['images']['tmp_name'] as $key => $tmp_name) {
+            if ($_FILES['images']['error'][$key] === 0) {
+                if (!$booking->validateImage([
+                    'name' => $_FILES['images']['name'][$key],
+                    'type' => $_FILES['images']['type'][$key],
+                    'size' => $_FILES['images']['size'][$key],
+                    'tmp_name' => $tmp_name
+                ])) {
+                    $errors[] = "Invalid image file at position " . ($key + 1) . ". Max size is 5MB, and only JPEG, PNG, and GIF are allowed.";
+                }
+            }
+        }
     }
-}
-if (empty($formData['image_path']) && !empty($existingBooking['image_path'])) {
-    $booking->image_path = $existingBooking['image_path'];
-}
 
     if (empty($errors)) {
-        $booking->id = $id;
+        // Update booking
+        $booking->id = $user_id;
         $booking->username = $formData['username'];
         
-        // Handle password update
         if ($isPasswordChanged) {
             $booking->password = $formData['password'];
         } else {
-            // Keep existing password
             $booking->password = $existingBooking['password'];
         }
 
@@ -110,9 +133,20 @@ if (empty($formData['image_path']) && !empty($existingBooking['image_path'])) {
         $booking->address = $formData['address'];
 
         if ($booking->update()) {
-            echo "Booking updated successfully.";
+            // Handle new image uploads
+            if (!empty($_FILES['images']['name'][0])) {
+                $uploaded_images = $booking->handleImageUploads($_FILES, $user_id);
+                if (empty($uploaded_images)) {
+                    error_log("No images were uploaded successfully for user_id: " . $user_id);
+                } else {
+                    error_log("Successfully uploaded " . count($uploaded_images) . " images for user_id: " . $user_id);
+                }
+            }
+            
+            header("Location: dashboard.php?success=1");
+            exit();
         } else {
-            echo "Unable to update booking.";
+            $errors[] = "Unable to update booking.";
         }
     }
 }
@@ -125,53 +159,10 @@ if (empty($formData['image_path']) && !empty($existingBooking['image_path'])) {
 </head>
 <body>
     <h2>Edit Ground Booking</h2>
-    
-    <?php if (!empty($errors)): ?>
-        <div style="color: red;">
-            <?php foreach ($errors as $error): ?>
-                <p><?php echo htmlspecialchars($error); ?></p>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
-    
-    <form method="POST" action="">
-        Username: <input type="text" name="username" value="<?php echo htmlspecialchars($formData['username'] ?? ''); ?>" required><br>
-        
-        Current Password: <input type="password" name="current_password" placeholder="Enter current password"><br>
-        
-        New Password: <input type="password" name="password" placeholder="Leave blank if not changing"><br>
-        
-        Email: <input type="email" name="email" value="<?php echo htmlspecialchars($formData['email'] ?? ''); ?>" required><br>
-        
-        Phone: <input type="tel" name="phone" value="<?php echo htmlspecialchars($formData['phone'] ?? ''); ?>" required><br>
-        
-        Number of Players: <input type="number" name="players_count" min="1" max="22" value="<?php echo htmlspecialchars($formData['players_count'] ?? ''); ?>" required><br>
-        
-        Booking Slot: <input type="datetime-local" name="booking_slot" value="<?php echo htmlspecialchars($formData['booking_slot'] ?? ''); ?>" required><br>
-        
-        Select Ground Type: 
-        <select name="ground_type">
-            <option value="indoor" <?php echo (isset($formData['ground_type']) && $formData['ground_type'] == 'indoor') ? 'selected' : ''; ?>>Indoor</option>
-            <option value="outdoor" <?php echo (isset($formData['ground_type']) && $formData['ground_type'] == 'outdoor') ? 'selected' : ''; ?>>Outdoor</option>
-            <option value="covered" <?php echo (isset($formData['ground_type']) && $formData['ground_type'] == 'covered') ? 'selected' : ''; ?>>Covered</option>
-        </select><br>
-        
-        Group Type: 
-        <input type="checkbox" name="group_type[]" value="family" <?php echo (isset($formData['group_type']) && in_array('family', $formData['group_type'])) ? 'checked' : ''; ?>> Family
-        <input type="checkbox" name="group_type[]" value="friends" <?php echo (isset($formData['group_type']) && in_array('friends', $formData['group_type'])) ? 'checked' : ''; ?>> Friends
-        <input type="checkbox" name="group_type[]" value="children" <?php echo (isset($formData['group_type']) && in_array('children', $formData['group_type'])) ? 'checked' : ''; ?>> Children<br>
-        
-        Gender:
-        <input type="radio" name="gender" value="male" <?php echo (isset($formData['gender']) && $formData['gender'] == 'male') ? 'checked' : ''; ?>> Male
-        <input type="radio" name="gender" value="female" <?php echo (isset($formData['gender']) && $formData['gender'] == 'female') ? 'checked' : ''; ?>> Female
-        <input type="radio" name="gender" value="other" <?php echo (isset($formData['gender']) && $formData['gender'] == 'other') ? 'checked' : ''; ?>> Other<br>
-        
-        Address: 
-        <textarea name="address" rows="4" cols="50" required><?php echo htmlspecialchars($formData['address'] ?? ''); ?></textarea><br>
-        Profile Image: <input type="file" name="image" accept="image/*"><br>
-        <input type="reset" value="Reset">
-        
-        <input type="submit" value="Update Booking">
-    </form>
+    <?php 
+    // Pass the user_id to the form for AJAX image loading
+    $formData['id'] = $user_id;
+    echo renderBookingForm($formData, $errors, true); 
+    ?>
 </body>
 </html>
