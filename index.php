@@ -1,25 +1,28 @@
 <?php
 require_once 'config/database.php';
-require_once 'class/GroundBooking.php'; 
+require_once 'class/GroundBooking.php';
 
 $database = new Database();
 $db = $database->conn;
-
 $booking = new GroundBooking($db);
 
-$query = "SELECT * FROM ground_bookings";
-$result = pg_query($db, $query);
-
+$bookings = $booking->getAllBookingsWithDetails();
 ?>
 <!DOCTYPE html>
 <html>
 <head>
     <title>Booking List</title>
     <style>
-        table { border-collapse: collapse; width: 100%; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        img { max-width: 100px; max-height: 100px; object-fit: cover; }
+        .image-gallery { display: flex; gap: 10px; flex-wrap: wrap; }
+        .image-gallery img { max-width: 100px; max-height: 100px; object-fit: cover; }
+        .status-toggle { cursor: pointer; }
+        .active { color: green; }
+        .inactive { color: red; }
+        .suggestion-content { max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
     </style>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
     <h2>Ground Booking List</h2>
@@ -36,13 +39,15 @@ $result = pg_query($db, $query);
                 <th>Group Type</th>
                 <th>Gender</th>
                 <th>Address</th>
-                <th>Profile Image</th>
+                <th>Images</th>
+                <th>Suggestion</th>
+                <th>Status</th>
                 <th>Actions</th>
             </tr>
         </thead>    
         <tbody>
-            <?php if ($result && pg_num_rows($result) > 0): ?>
-                <?php while ($row = pg_fetch_assoc($result)): ?>
+            <?php if ($bookings): ?>
+                <?php foreach ($bookings as $row): ?>
                     <tr>
                         <td><?php echo htmlspecialchars($row['id']); ?></td>
                         <td><?php echo htmlspecialchars($row['username']); ?></td>
@@ -55,12 +60,31 @@ $result = pg_query($db, $query);
                         <td><?php echo htmlspecialchars($row['gender']); ?></td>
                         <td><?php echo htmlspecialchars($row['address']); ?></td>
                         <td>
-                            <?php if (!empty($row['image_path']) && file_exists($row['image_path'])): ?>
-                                <img src="<?php echo htmlspecialchars($row['image_path']); ?>" 
-                                     alt="Profile Image">
-                            <?php else: ?>
-                                No Image
-                            <?php endif; ?>
+                            <div class="image-gallery">
+                                <?php if (!empty($row['images'])): ?>
+                                    <?php foreach ($row['images'] as $image): ?>
+                                        <img src="<?php echo htmlspecialchars($image); ?>" alt="User Image">
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    No Images
+                                <?php endif; ?>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="suggestion-content">
+                                <?php echo !empty($row['suggestion']) ? html_entity_decode($row['suggestion']) : 'No suggestion'; ?>
+                            </div>
+                        </td>
+                        <td>
+                            <label class="status-toggle">
+                                <input type="checkbox" 
+                                       class="status-checkbox" 
+                                       data-user-id="<?php echo $row['id']; ?>"
+                                       <?php echo $row['is_active'] ? 'checked' : ''; ?>>
+                                <span class="<?php echo $row['is_active'] ? 'active' : 'inactive'; ?>">
+                                    <?php echo $row['is_active'] ? 'Active' : 'Inactive'; ?>
+                                </span>
+                            </label>
                         </td>
                         <td>
                             <a href="edit.php?id=<?php echo htmlspecialchars($row['id']); ?>">Edit</a> |
@@ -68,13 +92,49 @@ $result = pg_query($db, $query);
                                onclick="return confirm('Are you sure you want to delete this booking?');">Delete</a>
                         </td>
                     </tr>
-                <?php endwhile; ?>
+                <?php endforeach; ?>
             <?php else: ?>
                 <tr>
-                    <td colspan="12">No records found</td>
+                    <td colspan="14">No records found</td>
                 </tr>
             <?php endif; ?>
         </tbody>
     </table>
+
+    <script>
+    $(document).ready(function() {
+        $('.status-checkbox').change(function() {
+            const userId = $(this).data('user-id');
+            const isActive = $(this).prop('checked');
+            const statusSpan = $(this).siblings('span');
+            
+            $.ajax({
+                url: 'update_status.php',
+                method: 'POST',
+                data: {
+                    user_id: userId,
+                    status: isActive
+                },
+                success: function(response) {
+                    const result = JSON.parse(response);
+                    if (result.success) {
+                        statusSpan.removeClass('active inactive')
+                                .addClass(isActive ? 'active' : 'inactive')
+                                .text(isActive ? 'Active' : 'Inactive');
+                    } else {
+                        alert('Failed to update status');
+                        // Revert checkbox state
+                        $(this).prop('checked', !isActive);
+                    }
+                },
+                error: function() {
+                    alert('Error updating status');
+                    // Revert checkbox state
+                    $(this).prop('checked', !isActive);
+                }
+            });
+        });
+    });
+    </script>
 </body>
 </html>

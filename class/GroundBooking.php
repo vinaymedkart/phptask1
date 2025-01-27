@@ -14,6 +14,7 @@ CREATE TABLE ground_bookings (
     address TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    is_active BOOLEAN DEFAULT TRUE
 );
 
 -- Create an index on email for faster lookup
@@ -181,7 +182,7 @@ class GroundBooking {
     }
 
     public function authenticate($email, $password) {
-        $query = "SELECT * FROM {$this->table_name} WHERE email = $1";
+        $query = "SELECT * FROM {$this->table_name} WHERE email = $1 AND is_active = TRUE";
         $result = pg_query_params($this->conn, $query, [$email]);
         
         if ($result && pg_num_rows($result) > 0) {
@@ -194,6 +195,42 @@ class GroundBooking {
         }
         
         return false;
+    }
+    public function updateStatus($id, $status) {
+        $query = "UPDATE " . $this->table_name . " SET is_active = $1 WHERE id = $2";
+        $result = pg_prepare($this->conn, "update_status", $query);
+        $result = pg_execute($this->conn, "update_status", [$status, $id]);
+        
+        return $result ? true : false;
+    }
+    public function getAllBookingsWithDetails() {
+        $query = "SELECT gb.*, 
+                  array_agg(DISTINCT ui.image_path) FILTER (WHERE ui.image_path IS NOT NULL) as images,
+                  s.suggestion
+                  FROM " . $this->table_name . " gb
+                  LEFT JOIN user_images ui ON gb.id = ui.user_id AND ui.is_deleted = FALSE
+                  LEFT JOIN suggestions s ON gb.id = s.user_id
+                  GROUP BY gb.id, s.suggestion
+                  ORDER BY gb.created_at DESC";
+                  
+        $result = pg_query($this->conn, $query);
+        
+        if (!$result) {
+            return false;
+        }
+        
+        $bookings = [];
+        while ($row = pg_fetch_assoc($result)) {
+            if (!empty($row['images'])) {
+                // Convert string array to PHP array
+                $row['images'] = explode(',', trim($row['images'], '{}'));
+            } else {
+                $row['images'] = [];
+            }
+            $bookings[] = $row;
+        }
+        
+        return $bookings;
     }
     public function readOne($id) {
         $query = "SELECT * FROM " . $this->table_name . " WHERE id = $1";
