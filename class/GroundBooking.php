@@ -271,7 +271,13 @@ public function getAllBookingsWithDetails() {
     
     return $bookings;
 }
+public function readOne($id) {
+    $query = "SELECT * FROM " . $this->table_name . " WHERE id = $1";
+    $result = pg_prepare($this->conn, "read_one", $query);
+    $result = pg_execute($this->conn, "read_one", [$id]);
 
+    return pg_num_rows($result) > 0 ? pg_fetch_assoc($result) : false;
+}
     public function update() {
         $query = "UPDATE " . $this->table_name . " 
                   SET username = $1, password = $2, email = $3, phone = $4, 

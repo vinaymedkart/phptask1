@@ -51,7 +51,6 @@ function renderBookingForm($formData = [], $errors = [], $isEdit = false) {
         <div class="image-upload-section">
             Profile Images: 
             <input type="file" name="images[]" id="imageUpload" accept="image/*" multiple><br>
-            <!-- <small style="color: red;">* At least one image is required</small> -->
             <div id="imagePreviewContainer" class="image-preview">
                 <?php if ($isEdit && !empty($formData['id'])): ?>
                     <div id="existingImages">
