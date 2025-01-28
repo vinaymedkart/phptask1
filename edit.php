@@ -17,20 +17,36 @@ $db = $database->conn;
 $booking = new GroundBooking($db);
 $userImage = new UserImage($db);
 
-$user_id = $_SESSION['user_id'];
+// Determine which user's data to edit
+$editing_user_id = null;
+
+// If admin is editing someone else's data
+if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin' && isset($_GET['id'])) {
+    $editing_user_id = (int)$_GET['id'];
+} else {
+    // User editing their own data
+    $editing_user_id = $_SESSION['user_id'];
+}
+
+// If not admin and trying to edit someone else's data, redirect to dashboard
+if ($_SESSION['role'] !== 'admin' && $editing_user_id !== $_SESSION['user_id']) {
+    header("Location: dashboard.php");
+    exit();
+}
+
 $errors = [];
 $formData = [];
 $isPasswordChanged = false;
 
 // Fetch booking details
-$existingBooking = $booking->readOne($user_id);
+$existingBooking = $booking->readOne($editing_user_id);
 if (!$existingBooking) {
     die('Booking not found');
 }
 $formData = $existingBooking;
 
 // Fetch existing images
-$existingImages = $userImage->getUserImages($user_id);
+$existingImages = $userImage->getUserImages($editing_user_id);
 
 // Append "class/" to the image_path of each image
 foreach ($existingImages as &$image) {
@@ -40,8 +56,6 @@ foreach ($existingImages as &$image) {
 // Update the form data with the modified images
 $formData['images'] = $existingImages;
 
-// Debug output to verify the changes
-// var_dump($existingImages);
 if (!empty($formData['group_type'])) {
     $formData['group_type'] = explode(', ', $formData['group_type']);
 }
@@ -49,7 +63,7 @@ if (!empty($formData['group_type'])) {
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Capture and process form data
     $formData = [
-        'id' => $user_id,  // Add this to keep track of the user ID
+        'id' => $editing_user_id,
         'username' => $_POST['username'] ?? '',
         'password' => $_POST['password'] ?? '',
         'current_password' => $_POST['current_password'] ?? '',
@@ -68,9 +82,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $errors[] = "Username must be 3-20 characters long and contain only letters, numbers, and underscores.";
     }
 
-    // Password change logic
+    // Password change logic - skip current password check for admin
     if (!empty($formData['password'])) {
-        if (!password_verify($formData['current_password'], $existingBooking['password'])) {
+        if ($_SESSION['role'] !== 'admin' && !password_verify($formData['current_password'], $existingBooking['password'])) {
             $errors[] = "Current password is incorrect.";
         } elseif (!$booking->validatePassword($formData['password'])) {
             $errors[] = "New password must be at least 8 characters long, with at least one letter and one number.";
@@ -78,8 +92,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $isPasswordChanged = true;
         }
     }
-
-    // Other validations...
     if (empty($formData['email']) || !$booking->validateEmail($formData['email'])) {
         $errors[] = "Enter a valid email address.";
     }
@@ -114,7 +126,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     if (empty($errors)) {
         // Update booking
-        $booking->id = $user_id;
+        $booking->id = $editing_user_id;
         $booking->username = $formData['username'];
         
         if ($isPasswordChanged) {
@@ -135,15 +147,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if ($booking->update()) {
             // Handle new image uploads
             if (!empty($_FILES['images']['name'][0])) {
-                $uploaded_images = $booking->handleImageUploads($_FILES, $user_id);
-                if (empty($uploaded_images)) {
-                    error_log("No images were uploaded successfully for user_id: " . $user_id);
-                } else {
-                    error_log("Successfully uploaded " . count($uploaded_images) . " images for user_id: " . $user_id);
-                }
+                $uploaded_images = $booking->handleImageUploads($_FILES, $editing_user_id);
             }
             
-            header("Location: dashboard.php?success=1");
+            // Redirect based on role
+            if ($_SESSION['role'] === 'admin') {
+                header("Location: index.php?success=1");
+            } else {
+                header("Location: dashboard.php?success=1");
+            }
             exit();
         } else {
             $errors[] = "Unable to update booking.";
@@ -156,12 +168,36 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <html>
 <head>
     <title>Edit Ground Booking</title>
+    <style>
+        .back-button {
+            margin: 10px 0;
+            padding: 8px 15px;
+            background-color: #6c757d;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            display: inline-block;
+        }
+        .back-button:hover {
+            background-color: #5a6268;
+        }
+    </style>
 </head>
 <body>
+    <?php if ($_SESSION['role'] === 'admin'): ?>
+        <a href="index.php" class="back-button">Back to Admin Dashboard</a>
+    <?php else: ?>
+        <a href="dashboard.php" class="back-button">Back to Dashboard</a>
+    <?php endif; ?>
+
     <h2>Edit Ground Booking</h2>
+    <?php if ($_SESSION['role'] === 'admin'): ?>
+        <p>Editing booking for user: <?php echo htmlspecialchars($existingBooking['email']); ?></p>
+    <?php endif; ?>
+    
     <?php 
-    // Pass the user_id to the form for AJAX image loading
-    $formData['id'] = $user_id;
+    // Pass the editing_user_id to the form for AJAX image loading
+    $formData['id'] = $editing_user_id;
     echo renderBookingForm($formData, $errors, true); 
     ?>
 </body>

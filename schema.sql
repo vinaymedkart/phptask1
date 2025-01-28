@@ -12,8 +12,11 @@ CREATE TABLE ground_bookings (
     gender VARCHAR(10) NOT NULL,
     address TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    role VARCHAR(20) DEFAULT 'user' CHECK (role IN ('user', 'admin'))
 );
+
 
 -- Create an index on email for faster lookup
 CREATE INDEX idx_ground_bookings_email ON ground_bookings(email);

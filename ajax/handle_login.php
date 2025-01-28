@@ -26,11 +26,15 @@ try {
         $_SESSION['user_id'] = $result['user']['id'];
         $_SESSION['email'] = $result['user']['email'];
         $_SESSION['username'] = $result['user']['username'];
+        $_SESSION['role'] = $result['user']['role'];
+        
+        // Determine redirect based on role
+        $redirect = $_SESSION['role'] === 'admin' ? '../index.php' : '../dashboard.php';
         
         echo json_encode([
             'success' => true,
             'message' => 'Login successful',
-            'redirect' => '../dashboard.php'
+            'redirect' => $redirect
         ]);
     } else {
         // Handle different error cases

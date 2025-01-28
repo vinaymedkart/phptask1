@@ -141,7 +141,7 @@ class GroundBooking {
     }
 
     public function authenticate($email, $password) {
-        $query = "SELECT id, email, password, is_active, username FROM " . $this->table_name . " 
+        $query = "SELECT id, email, password, is_active, username, role FROM " . $this->table_name . " 
                   WHERE email = $1";
         
         $result = pg_query_params($this->conn, $query, [$email]);
@@ -152,15 +152,12 @@ class GroundBooking {
             // Convert PostgreSQL boolean 't'/'f' to PHP boolean
             $is_active = ($user['is_active'] === 't' || $user['is_active'] === true);
             
-            // First check if account is active
             if (!$is_active) {
                 return ['error' => 'account_inactive'];
             }
             
-            // Then verify password
             if (password_verify($password, $user['password'])) {
-                unset($user['password']); // Don't return password hash
-                // Ensure is_active is returned as a boolean
+                unset($user['password']);
                 $user['is_active'] = $is_active;
                 return ['success' => true, 'user' => $user];
             }
@@ -238,42 +235,42 @@ class GroundBooking {
     }
     
     
-    public function getAllBookingsWithDetails() {
-        $query = "SELECT gb.*, 
-                  array_agg(DISTINCT ui.image_path) FILTER (WHERE ui.image_path IS NOT NULL) as images,
-                  s.suggestion
-                  FROM " . $this->table_name . " gb
-                  LEFT JOIN user_images ui ON gb.id = ui.user_id AND ui.is_deleted = FALSE
-                  LEFT JOIN suggestions s ON gb.id = s.user_id
-                  GROUP BY gb.id, s.suggestion
-                  ORDER BY gb.created_at DESC";
-                  
-        $result = pg_query($this->conn, $query);
-        
-        if (!$result) {
-            return false;
-        }
-        
-        $bookings = [];
-        while ($row = pg_fetch_assoc($result)) {
-            if (!empty($row['images'])) {
-                // Convert string array to PHP array
-                $row['images'] = explode(',', trim($row['images'], '{}'));
-            } else {
-                $row['images'] = [];
-            }
-            $bookings[] = $row;
-        }
-        
-        return $bookings;
+    // Add this to your GroundBooking class
+public function getAllBookingsWithDetails() {
+    $query = "SELECT gb.*, 
+              array_agg(DISTINCT ui.image_path) FILTER (WHERE ui.image_path IS NOT NULL) as images,
+              s.suggestion,
+              CASE 
+                  WHEN gb.is_active = true THEN 't'
+                  ELSE 'f'
+              END as is_active
+              FROM " . $this->table_name . " gb
+              LEFT JOIN user_images ui ON gb.id = ui.user_id AND ui.is_deleted = FALSE
+              LEFT JOIN suggestions s ON gb.id = s.user_id
+              GROUP BY gb.id, s.suggestion
+              ORDER BY gb.created_at DESC";
+              
+    $result = pg_query($this->conn, $query);
+    
+    if (!$result) {
+        return false;
     }
-    public function readOne($id) {
-        $query = "SELECT * FROM " . $this->table_name . " WHERE id = $1";
-        $result = pg_prepare($this->conn, "read_one", $query);
-        $result = pg_execute($this->conn, "read_one", [$id]);
-
-        return pg_num_rows($result) > 0 ? pg_fetch_assoc($result) : false;
+    
+    $bookings = [];
+    while ($row = pg_fetch_assoc($result)) {
+        if (!empty($row['images'])) {
+            // Convert string array to PHP array
+            $row['images'] = explode(',', trim($row['images'], '{}'));
+        } else {
+            $row['images'] = [];
+        }
+        // Ensure consistent boolean representation
+        $row['is_active'] = ($row['is_active'] === 't' || $row['is_active'] === true || $row['is_active'] === '1');
+        $bookings[] = $row;
     }
+    
+    return $bookings;
+}
 
     public function update() {
         $query = "UPDATE " . $this->table_name . " 
@@ -303,6 +300,98 @@ class GroundBooking {
         ]);
 
         return $result ? true : false;
+    }
+    public function delete($id) {
+        try {
+            // Start transaction
+            pg_query($this->conn, "BEGIN");
+    
+            // Delete associated images first
+            $delete_images_query = "UPDATE user_images 
+                                   SET is_deleted = TRUE, 
+                                       deleted_at = CURRENT_TIMESTAMP 
+                                   WHERE user_id = $1";
+            $result = pg_query_params($this->conn, $delete_images_query, [$id]);
+            
+            if (!$result) {
+                throw new Exception("Failed to update image records");
+            }
+    
+            // Delete associated suggestions
+            $delete_suggestions_query = "DELETE FROM suggestions WHERE user_id = $1";
+            $result = pg_query_params($this->conn, $delete_suggestions_query, [$id]);
+            
+            if (!$result) {
+                throw new Exception("Failed to delete suggestions");
+            }
+    
+            // Delete the booking record
+            $delete_booking_query = "DELETE FROM " . $this->table_name . " WHERE id = $1";
+            $result = pg_query_params($this->conn, $delete_booking_query, [$id]);
+            
+            if (!$result) {
+                throw new Exception("Failed to delete booking");
+            }
+    
+            // Commit transaction
+            pg_query($this->conn, "COMMIT");
+            
+            return true;
+    
+        } catch (Exception $e) {
+            // Rollback transaction on error
+            pg_query($this->conn, "ROLLBACK");
+            error_log("Delete error in GroundBooking: " . $e->getMessage());
+            return false;
+        }
+    }
+    function searchBookings($searchTerm, $searchField) {
+        $baseQuery = "SELECT gb.*, 
+                      array_agg(DISTINCT ui.image_path) FILTER (WHERE ui.image_path IS NOT NULL) as images,
+                      s.suggestion
+                      FROM " . $this->table_name . " gb
+                      LEFT JOIN user_images ui ON gb.id = ui.user_id AND ui.is_deleted = FALSE
+                      LEFT JOIN suggestions s ON gb.id = s.user_id";
+    
+        $whereConditions = [];
+        $params = [];
+    
+        if ($searchTerm !== '') {
+            if ($searchField === 'all') {
+                $whereConditions[] = "(username ILIKE $1 OR email ILIKE $1)";
+                $params[] = "%$searchTerm%";
+            } elseif ($searchField === 'username') {
+                $whereConditions[] = "username ILIKE $1";
+                $params[] = "%$searchTerm%";
+            } elseif ($searchField === 'email') {
+                $whereConditions[] = "email ILIKE $1";
+                $params[] = "%$searchTerm%";
+            }
+        }
+    
+        if (!empty($whereConditions)) {
+            $baseQuery .= " WHERE " . implode(" AND ", $whereConditions);
+        }
+    
+        $baseQuery .= " GROUP BY gb.id, s.suggestion ORDER BY gb.created_at DESC";
+    
+        $result = pg_query_params($this->conn, $baseQuery, $params);
+        
+        if (!$result) {
+            return false;
+        }
+    
+        $bookings = [];
+        while ($row = pg_fetch_assoc($result)) {
+            if (!empty($row['images'])) {
+                $row['images'] = explode(',', trim($row['images'], '{}'));
+            } else {
+                $row['images'] = [];
+            }
+            $bookings[] = $row;
+        }
+    
+        return $bookings;
     }
 }
 ?>
