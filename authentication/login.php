@@ -1,54 +1,52 @@
 <?php
 session_start();
-require_once '../config/database.php';
-require_once '../class/GroundBooking.php';
-
-$errors = [];
-
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $email = $_POST['email'] ?? '';
-    $password = $_POST['password'] ?? '';
-
-    $database = new Database();
-    $db = $database->conn;
-    $booking = new GroundBooking($db);
-
-    $user = $booking->authenticate($email, $password);
-
-    if ($user) {
-        // Successful login
-        $_SESSION['user_id'] = $user['id'];
-        $_SESSION['email'] = $user['email'];
-        header("Location: ../dashboard.php");
-        exit();
-    } else {
-        $errors[] = "Invalid email or password";
-    }
-}
 ?>
-
 <!DOCTYPE html>
 <html>
 <head>
     <title>Login</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
     <h2>Login</h2>
     
-    <?php if (!empty($errors)): ?>
-        <div style="color: red;">
-            <?php foreach ($errors as $error): ?>
-                <p><?php echo htmlspecialchars($error); ?></p>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
+    <div id="error-message" style="color: red; display: none;"></div>
     
-    <form method="POST" action="">
+    <form id="login-form" method="POST">
         Email: <input type="email" name="email" required><br>
         Password: <input type="password" name="password" required><br>
         
         <input type="submit" value="Login">
         <p>Don't have an account? <a href="../register.php">Register here</a></p>
     </form>
+
+    <script>
+    $(document).ready(function() {
+        $('#login-form').on('submit', function(e) {
+            e.preventDefault();
+            
+            $.ajax({
+                url: '../ajax/handle_login.php',
+                type: 'POST',
+                data: $(this).serialize(),
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        window.location.href = response.redirect;
+                    } else {
+                        $('#error-message')
+                            .text(response.message)
+                            .show();
+                    }
+                },
+                error: function() {
+                    $('#error-message')
+                        .text('An error occurred. Please try again.')
+                        .show();
+                }
+            });
+        });
+    });
+    </script>
 </body>
 </html>

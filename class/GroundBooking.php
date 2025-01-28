@@ -1,45 +1,4 @@
-<!-- 
--- Create ground_bookings table with merged queries
-CREATE TABLE ground_bookings (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    email VARCHAR(100) NOT NULL UNIQUE,
-    phone VARCHAR(15) NOT NULL,
-    players_count INTEGER NOT NULL,
-    booking_slot TIMESTAMP NOT NULL,
-    ground_type VARCHAR(50),
-    group_type TEXT,
-    gender VARCHAR(10) NOT NULL,
-    address TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    is_active BOOLEAN DEFAULT TRUE
-);
 
--- Create an index on email for faster lookup
-CREATE INDEX idx_ground_bookings_email ON ground_bookings(email);
-
--- Create user_images table for managing user images with soft delete
-CREATE TABLE user_images (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES ground_bookings(id),
-    image_path VARCHAR(255) NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE, -- Soft delete flag
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create suggestions table for managing suggestions linked to user
-CREATE TABLE suggestions (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES ground_bookings(id),
-    suggestion TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--->
 <?php
 require_once __DIR__ . '/UserImage.php';  // Add this line at the top
 
@@ -182,27 +141,103 @@ class GroundBooking {
     }
 
     public function authenticate($email, $password) {
-        $query = "SELECT * FROM {$this->table_name} WHERE email = $1 AND is_active = TRUE";
+        $query = "SELECT id, email, password, is_active, username FROM " . $this->table_name . " 
+                  WHERE email = $1";
+        
         $result = pg_query_params($this->conn, $query, [$email]);
         
         if ($result && pg_num_rows($result) > 0) {
             $user = pg_fetch_assoc($result);
             
-            // Verify password
-            if (password_verify($password, $user['password'])) {
-                return $user;
+            // Convert PostgreSQL boolean 't'/'f' to PHP boolean
+            $is_active = ($user['is_active'] === 't' || $user['is_active'] === true);
+            
+            // First check if account is active
+            if (!$is_active) {
+                return ['error' => 'account_inactive'];
             }
+            
+            // Then verify password
+            if (password_verify($password, $user['password'])) {
+                unset($user['password']); // Don't return password hash
+                // Ensure is_active is returned as a boolean
+                $user['is_active'] = $is_active;
+                return ['success' => true, 'user' => $user];
+            }
+            
+            return ['error' => 'invalid_credentials'];
         }
         
-        return false;
+        return ['error' => 'invalid_credentials'];
     }
     public function updateStatus($id, $status) {
-        $query = "UPDATE " . $this->table_name . " SET is_active = $1 WHERE id = $2";
-        $result = pg_prepare($this->conn, "update_status", $query);
-        $result = pg_execute($this->conn, "update_status", [$status, $id]);
+        if ($status === 'true' || $status === '1' || $status === true) {
+            $status = 't';
+        } elseif ($status === 'false' || $status === '0' || $status === false) {
+            $status = 'f';
+        } else {
+            $status = null;
+        }
         
-        return $result ? true : false;
+        $id = filter_var($id, FILTER_VALIDATE_INT);
+        if ($id === false) {
+            return ['success' => false, 'message' => 'Invalid user ID'];
+        }
+        
+        try {
+            // Create a unique statement name
+            $stmt_name = 'update_status_' . uniqid();
+            
+            // First, deallocate if the statement exists
+            @pg_query($this->conn, "DEALLOCATE IF EXISTS " . $stmt_name);
+            
+            // Query to update the status
+            $query = "UPDATE " . $this->table_name . " 
+            SET is_active = $1, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = $2 
+            RETURNING id, is_active";
+            
+            // Prepare the statement
+            $result = pg_prepare($this->conn, $stmt_name, $query);
+            if (!$result) {
+                error_log("Prepare failed: " . pg_last_error($this->conn));
+                return ['success' => false, 'message' => 'Failed to prepare query'];
+            }
+            
+            // Execute the statement
+            $result = pg_execute($this->conn, $stmt_name, [$status, $id]);
+            if (!$result) {
+                error_log("Execute failed: " . pg_last_error($this->conn));
+                return ['success' => false, 'message' => 'Failed to execute query'];
+            }
+            
+            // Check if any row was updated
+            if (pg_num_rows($result) > 0) {
+                $updated = pg_fetch_assoc($result);
+                
+                // Clean up - deallocate the prepared statement
+                @pg_query($this->conn, "DEALLOCATE " . $stmt_name);
+                
+                return [
+                    'success' => true,
+                    'message' => 'Status updated successfully',
+                    'user_id' => $updated['id'],
+                    'is_active' => $updated['is_active'] === 't'
+                ];
+            }
+    
+            // Clean up - deallocate the prepared statement
+            @pg_query($this->conn, "DEALLOCATE " . $stmt_name);
+            
+            return ['success' => false, 'message' => 'No record found to update'];
+            
+        } catch (Exception $e) {
+            error_log("Error in updateStatus: " . $e->getMessage());
+            return ['success' => false, 'message' => 'Server error occurred'];
+        }
     }
+    
+    
     public function getAllBookingsWithDetails() {
         $query = "SELECT gb.*, 
                   array_agg(DISTINCT ui.image_path) FILTER (WHERE ui.image_path IS NOT NULL) as images,

@@ -1,4 +1,5 @@
 <?php
+session_start();
 require_once 'config/database.php';
 require_once 'class/GroundBooking.php';
 
@@ -103,36 +104,38 @@ $bookings = $booking->getAllBookingsWithDetails();
 
     <script>
     $(document).ready(function() {
-        $('.status-checkbox').change(function() {
-            const userId = $(this).data('user-id');
-            const isActive = $(this).prop('checked');
-            const statusSpan = $(this).siblings('span');
-            
-            $.ajax({
-                url: 'update_status.php',
-                method: 'POST',
-                data: {
-                    user_id: userId,
-                    status: isActive
-                },
-                success: function(response) {
-                    const result = JSON.parse(response);
-                    if (result.success) {
-                        statusSpan.removeClass('active inactive')
-                                .addClass(isActive ? 'active' : 'inactive')
-                                .text(isActive ? 'Active' : 'Inactive');
-                    } else {
-                        alert('Failed to update status');
-                        // Revert checkbox state
-                        $(this).prop('checked', !isActive);
-                    }
-                },
-                error: function() {
-                    alert('Error updating status');
-                    // Revert checkbox state
-                    $(this).prop('checked', !isActive);
+    $('.status-checkbox').change(function() {
+        const checkbox = $(this);
+        const userId = checkbox.data('user-id');
+        const isActive = checkbox.prop('checked');
+        const statusSpan = checkbox.siblings('span');
+        
+        $.ajax({
+            url: 'ajax/update_status.php',
+            method: 'POST',
+            data: {
+                user_id: userId,
+                status: isActive ? 'true' : 'false'  // Send as string 'true'/'false'
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    statusSpan.removeClass('active inactive')
+                        .addClass(isActive ? 'active' : 'inactive')
+                        .text(isActive ? 'Active' : 'Inactive');
+                } else {
+                    alert(response.message || 'Failed to update status');
+                    checkbox.prop('checked', !isActive);
                 }
-            });
+            },
+            error: function(xhr, status, error) {
+                console.error('Error:', error);
+                console.error('Response:', xhr.responseText);
+                alert('Error connecting to server');
+                checkbox.prop('checked', !isActive);
+            }
+        });
+
         });
     });
     </script>
