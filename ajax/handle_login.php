@@ -22,13 +22,11 @@ try {
     $result = $booking->authenticate($email, $password);
     
     if (isset($result['success'])) {
-        // Successful login
         $_SESSION['user_id'] = $result['user']['id'];
         $_SESSION['email'] = $result['user']['email'];
         $_SESSION['username'] = $result['user']['username'];
         $_SESSION['role'] = $result['user']['role'];
         
-        // Determine redirect based on role
         $redirect = $_SESSION['role'] === 'admin' ? '../index.php' : '../dashboard.php';
         
         echo json_encode([
@@ -37,7 +35,6 @@ try {
             'redirect' => $redirect
         ]);
     } else {
-        // Handle different error cases
         $message = match($result['error']) {
             'account_inactive' => 'Your account is currently inactive. Please contact support.',
             'invalid_credentials' => 'Invalid email or password',

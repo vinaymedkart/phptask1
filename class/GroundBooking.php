@@ -235,7 +235,7 @@ class GroundBooking {
     }
     
     
-    // Add this to your GroundBooking class
+  
 public function getAllBookingsWithDetails() {
     $query = "SELECT gb.*, 
               array_agg(DISTINCT ui.image_path) FILTER (WHERE ui.image_path IS NOT NULL) as images,
@@ -259,12 +259,10 @@ public function getAllBookingsWithDetails() {
     $bookings = [];
     while ($row = pg_fetch_assoc($result)) {
         if (!empty($row['images'])) {
-            // Convert string array to PHP array
             $row['images'] = explode(',', trim($row['images'], '{}'));
         } else {
             $row['images'] = [];
         }
-        // Ensure consistent boolean representation
         $row['is_active'] = ($row['is_active'] === 't' || $row['is_active'] === true || $row['is_active'] === '1');
         $bookings[] = $row;
     }
@@ -285,7 +283,7 @@ public function readOne($id) {
                       group_type = $8, gender = $9, address = $10 
                   WHERE id = $11";
 
-        // If password is not hashed, hash it
+       
         $password = strpos($this->password, '$2y$') === false 
             ? password_hash($this->password, PASSWORD_DEFAULT) 
             : $this->password;
@@ -309,10 +307,9 @@ public function readOne($id) {
     }
     public function delete($id) {
         try {
-            // Start transaction
+           
             pg_query($this->conn, "BEGIN");
     
-            // Delete associated images first
             $delete_images_query = "UPDATE user_images 
                                    SET is_deleted = TRUE, 
                                        deleted_at = CURRENT_TIMESTAMP 
@@ -323,7 +320,6 @@ public function readOne($id) {
                 throw new Exception("Failed to update image records");
             }
     
-            // Delete associated suggestions
             $delete_suggestions_query = "DELETE FROM suggestions WHERE user_id = $1";
             $result = pg_query_params($this->conn, $delete_suggestions_query, [$id]);
             
@@ -331,7 +327,6 @@ public function readOne($id) {
                 throw new Exception("Failed to delete suggestions");
             }
     
-            // Delete the booking record
             $delete_booking_query = "DELETE FROM " . $this->table_name . " WHERE id = $1";
             $result = pg_query_params($this->conn, $delete_booking_query, [$id]);
             
@@ -339,13 +334,11 @@ public function readOne($id) {
                 throw new Exception("Failed to delete booking");
             }
     
-            // Commit transaction
             pg_query($this->conn, "COMMIT");
             
             return true;
     
         } catch (Exception $e) {
-            // Rollback transaction on error
             pg_query($this->conn, "ROLLBACK");
             error_log("Delete error in GroundBooking: " . $e->getMessage());
             return false;

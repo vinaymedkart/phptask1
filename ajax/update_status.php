@@ -5,12 +5,8 @@ require_once '../class/GroundBooking.php';
 
 header('Content-Type: application/json');
 
-// Enhanced validation
 $userId = filter_var($_POST['user_id'] ?? null, FILTER_VALIDATE_INT);
 $status = isset($_POST['status']) ? $_POST['status'] : null;
-
-// Convert string representations to boolean
-
 
 if ($userId === false || $status === null) {
     echo json_encode(['success' => false, 'message' => 'Invalid parameters']);

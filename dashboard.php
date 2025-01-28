@@ -21,7 +21,6 @@ $database = new Database();
 $db = $database->conn;
 $booking = new GroundBooking($db);
 
-// Fetch user's booking details
 $userBooking = $booking->readOne($_SESSION['user_id']);
 $suggestionObj = new UserSuggestion($db);
 $userSuggestion = $suggestionObj->readByUserId($_SESSION['user_id']);

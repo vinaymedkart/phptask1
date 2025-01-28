@@ -17,23 +17,18 @@ $formData = [];
 $currentSuggestion = $suggestionObj->readByUserId($_SESSION['user_id']);
 $hasSuggestion = $suggestionObj->hasSuggestion($_SESSION['user_id']);
 
-// Check if the form is submitted
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $formData['suggestion'] = $_POST['suggestion_content'] ?? '';
     
-    // Validate the suggestion content
     if (empty($formData['suggestion'])) {
         $errors[] = "Suggestion content cannot be empty.";
     }
     
-    // If there are no errors, proceed with saving/updating the suggestion
     if (empty($errors)) {
         try {   
             if ($hasSuggestion) {
-                // Update existing suggestion
                 $result = $suggestionObj->update($currentSuggestion['id'], $formData['suggestion']);
             } else {
-                // Create new suggestion
                 $result = $suggestionObj->create($_SESSION['user_id'], $formData['suggestion']);
             }
             
